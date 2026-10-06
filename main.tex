@@ -1,0 +1,99 @@
+%%%%%%%% CSCI 467 EXAMPLE LATEX SUBMISSION FILE %%%%%%%%%%%%%%%%%
+%%%%%%%% Adapted from the ICML 2021 EXAMPLE LATEX SUBMISSION FILE %%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subfigure}
+\usepackage{booktabs} % for professional tables
+
+% hyperref makes hyperlinks in the resulting PDF.
+% If your build breaks (sometimes temporarily if a hyperlink spans a page)
+% please comment out the following usepackage line and replace
+% \usepackage{icml2021} with \usepackage[nohyperref]{icml2021} above.
+\usepackage{hyperref}
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Use the following line for the initial blind version submitted for review:
+%\usepackage{icml2021}
+
+% If accepted, instead use the following line for the camera-ready submission:
+\usepackage[accepted]{icml2021}
+
+\begin{document}
+
+\twocolumn[
+\icmltitle{Pricing Pok\'emon: Predicting Trading Card Market Value from Card Attributes and Artwork}
+
+\begin{icmlauthorlist}
+\icmlauthor{Cameron Bieker}{}
+\end{icmlauthorlist}
+
+\vskip 0.3in
+]
+
+% The abstract is only needed for the final report.
+%\begin{abstract}
+%\end{abstract}
+
+\section{Introduction}
+
+Pok\'emon trading cards are one of the largest collectibles markets in the world, yet the price of a newly released card is set only after weeks of noisy buying and selling. Collectors deciding which cards to keep, sellers listing cards from a fresh booster box, and players trading at events all have to guess what a card is ``worth'' before reliable sales history exists. Experienced collectors make this guess from what they can see on the card: its rarity symbol, which Pok\'emon it shows, whether it is a full-art or special illustration, how old the set is, and how striking the artwork is. The goal of this project is to build a machine learning system that makes the same judgment automatically.
+
+\textbf{Task.} Given a single English Pok\'emon TCG card, predict its current market price in US dollars. Because prices span four orders of magnitude (from \$0.05 bulk commons to cards worth thousands of dollars), I will regress the \emph{log} of the price and convert back to dollars when reporting.
+
+\textbf{Input.} (1) Structured card metadata: rarity (e.g., Common, Double Rare, Illustration Rare, Special Illustration Rare), supertype and subtypes (Pok\'emon / Trainer / Energy; ex, V, VMAX, etc.), the Pok\'emon depicted (and its National Pok\'edex number), HP, set, set release date, card number relative to the printed set size (``secret rares'' are numbered above it), illustrator, and how many times the same card name has been printed. (2) The card's front image (official scan, $\sim$734$\times$1024 pixels).
+
+\textbf{Output.} A single real number: the predicted $\log_{10}$ of the card's TCGplayer near-mint market price.
+
+\textbf{Scope.} I deliberately restrict the task to \emph{pricing a card from what is printed on it}, without using the card's own past prices. This keeps the problem a supervised regression on a fixed snapshot (not stock-style time-series forecasting) and matches the hardest real-world case: valuing cards from a brand-new set that has no trading history yet. Graded (PSA/BGS) prices, card condition, and non-English cards are out of scope.
+
+\section{Related Work}
+
+Most prior card-price work targets \emph{Magic: The Gathering} and treats cards as financial assets. \citet{pawlicki2014mtg}, a Stanford CS229 project, frame price movement as binary classification of whether a card's price will rise in the next week, using logistic regression and SVMs over recent prices, sales volume, and tournament usage. \citet{perkhounkov2015financial} regress future MTG prices with support vector regression and find that past prices are far more predictive than card attributes or tournament results; they also report that the many near-constant ``bulk'' cards inflate $R^2$ and make results look better than they are, a pitfall I will guard against by reporting error per rarity tier. Both projects depend on price history, which is exactly what is missing for a newly released card.
+
+For Pok\'emon, several student and hobbyist projects exist but are mostly tabular. For example, one machine learning course project \citep{cse151a_pokemon} predicts card rarity from attributes and price features using random forests and a small neural network, removing the top 1\% of prices as outliers. None that I found use the card artwork, even though collectors clearly pay a large premium for full-art and alternate-art printings.
+
+Outside trading cards, multimodal models that combine images with tabular features have improved price prediction for products such as cellphones \citep{zehtab2020multimodal}. Most relevant, \citet{mei2025art} predict fine-art auction prices with tabular models (hedonic regression, XGBoost) and multimodal networks using ResNet-50 and Vision Transformer image features. They find that images add little when an artwork has prior sales, but help substantially for works with \emph{no} sales history. This directly motivates my design: the image should matter most on my out-of-distribution test set of the newest cards. My methods build on gradient-boosted trees \citep{chen2016xgboost} and pretrained CLIP image embeddings \citep{radford2021clip}.
+
+\section{Dataset and Evaluation}
+
+\textbf{Data sources.} Card metadata and image URLs come from the open-source Pok\'emon TCG API data dump \citep{pokemontcgdata}, which covers roughly 19,000 English cards from 1999 to the present. Prices come from the same API's live endpoint \citep{pokemontcgapi}, which returns TCGplayer market prices for each printing variant (normal, holofoil, reverse holofoil, 1st edition). TCGdex \citep{tcgdex} provides the same TCGplayer and Cardmarket prices without an API key and will serve as a backup source and cross-check. Since prices change daily, I will take a single price snapshot in October 2026 and save it, so all experiments use a fixed dataset.
+
+\textbf{Target construction.} For each card I use the TCGplayer \emph{market} price of its primary printing (holofoil if the card exists only as a holo, otherwise normal), and drop cards with no recorded price. Reverse-holo and 1st-edition variants become separate examples only if time allows. I will report the final number of examples, the price distribution, and the number of cards per rarity in the midterm report.
+
+\textbf{Splits.} I will build two test sets:
+\begin{itemize}
+    \item \textbf{In-distribution:} a random 80/10/10 train/dev/test split, \emph{grouped by card name} so that reprints of the same card (e.g., the many ``Charizard ex'' printings) never appear in both train and test.
+    \item \textbf{Out-of-distribution (new sets):} train on all sets released before a cutoff date and test on sets released in the final $\sim$12 months. This mimics pricing a new set before the market settles, and tests whether the model generalizes to new rarities and art styles.
+\end{itemize}
+
+\textbf{Metrics.} The primary metric is RMSE on $\log_{10}$(price), which measures error in ``orders of magnitude'' so a \$1 vs.\ \$2 mistake counts the same as \$100 vs.\ \$200. I will also report MAE in dollars (what a seller cares about), Spearman rank correlation (does the model order cards correctly by value, e.g., to find a set's ``chase'' cards), and all metrics broken down by rarity so that the thousands of cheap commons do not hide poor performance on valuable cards.
+
+\section{Methods}
+
+\textbf{Baseline (non-ML).} Predict the median training-set log price of the card's rarity. A second rule-based baseline uses the median per (rarity, era) pair, since the same rarity name is worth very different amounts in 2000 and 2025.
+
+\textbf{Method 1: Linear regression.} Ridge regression on one-hot rarity, supertype/subtype, and set era plus numeric features (card age, HP, card number divided by set size, reprint count). Regularization strength is tuned on the dev set.
+
+\textbf{Method 2: Gradient-boosted trees.} XGBoost \citep{chen2016xgboost} on the same features plus richer ones: a Pok\'emon popularity score (e.g., from a public fan popularity poll or search interest), whether the Pok\'emon is a known ``chase'' species (Charizard, Pikachu, Eeveelutions), and target-encoded illustrator and set. Trees can capture interactions that a linear model cannot, such as ``Special Illustration Rare \emph{and} a popular Pok\'emon.'' Depth, learning rate, and number of trees are tuned on the dev set. This is the planned midterm method.
+
+\textbf{Method 3 (final): Multimodal model.} Add the card image. First, extract frozen CLIP ViT-B/32 embeddings \citep{radford2021clip} for each card and feed them (optionally reduced with PCA) alongside the tabular features to XGBoost or a small MLP. If time allows, fine-tune a pretrained CNN (e.g., ResNet-50) end to end on Google Colab with the tabular features concatenated before the regression head. The hypothesis, following \citet{mei2025art}, is that the artwork captures visual appeal and art style that the metadata misses, and helps most on the new-set test split.
+
+\textbf{Key challenges.}
+\begin{itemize}
+    \item \emph{Heavy-tailed prices and a bulk floor:} handled by regressing log price and reporting metrics per rarity.
+    \item \emph{Popularity is not in the data:} a Charizard and a Bidoof with identical rarity can differ 100$\times$ in price. I will add an external popularity feature and use error analysis to measure how much remains unexplained.
+    \item \emph{Leakage through reprints:} grouped splitting by card name.
+    \item \emph{Distribution shift:} new sets introduce new rarity names and art styles; the temporal split measures this directly, and image features are meant to help here.
+    \item \emph{Noisy labels:} old or rarely traded cards have unreliable market prices. I will inspect such cases during error analysis and, if needed, filter cards with very low sales volume.
+\end{itemize}
+
+\bibliography{main}
+\bibliographystyle{icml2021}
+
+\end{document}
