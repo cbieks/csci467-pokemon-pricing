@@ -44,54 +44,170 @@
 
 Pok\'emon trading cards are one of the largest collectibles markets in the world, yet the price of a newly released card is set only after weeks of noisy buying and selling. Collectors deciding which cards to keep, sellers listing cards from a fresh booster box, and players trading at events all have to guess what a card is ``worth'' before reliable sales history exists. Experienced collectors make this guess from what they can see on the card: its rarity symbol, which Pok\'emon it shows, whether it is a full-art or special illustration, how old the set is, and how striking the artwork is. The goal of this project is to build a machine learning system that makes the same judgment automatically.
 
-\textbf{Task.} Given a single English Pok\'emon TCG card, predict its current market price in US dollars. Because prices span four orders of magnitude (from \$0.05 bulk commons to cards worth thousands of dollars), I will regress the \emph{log} of the price and convert back to dollars when reporting.
+\textbf{Task.} Given a single English Pok\'emon TCG card, predict its current TCGplayer near-mint market price. Because prices span almost six orders of magnitude (\$0.02 to \$9{,}200 in my data), the model regresses $\log_{10}$(price), and predictions are converted back to dollars for reporting. The \textbf{input} is the card's structured metadata (rarity, card category and subtype, the Pok\'emon depicted, HP, set, set release date, card number relative to the printed set size, illustrator, and how often the same card name has been printed) and, for the final report, the card's front image. The \textbf{output} is a single real number, the predicted $\log_{10}$ price. The task is restricted to pricing a card \emph{from what is printed on it}, without its own price history, which matches the hardest real case: valuing a brand-new set before trading settles. Graded prices, card condition, and non-English cards are out of scope.
 
-\textbf{Input.} (1) Structured card metadata: rarity (e.g., Common, Double Rare, Illustration Rare, Special Illustration Rare), supertype and subtypes (Pok\'emon / Trainer / Energy; ex, V, VMAX, etc.), the Pok\'emon depicted (and its National Pok\'edex number), HP, set, set release date, card number relative to the printed set size (``secret rares'' are numbered above it), illustrator, and how many times the same card name has been printed. (2) The card's front image (official scan, $\sim$734$\times$1024 pixels).
+\textbf{Changes since the proposal.} I did not receive written feedback on the proposal, so the task is unchanged. Three implementation details changed. (1) The Pok\'emon TCG API \citep{pokemontcgapi} returned intermittent HTTP 502 errors when I took the price snapshot, so I switched to TCGdex, which the proposal listed as the backup source. TCGdex serves both metadata and TCGplayer prices under one card ID, so no cross-source join was needed. (2) The snapshot was taken on November 2, 2026 rather than in October. (3) The external popularity score is deferred to the final report; the midterm model uses a hand-defined ``chase species'' indicator instead.
 
-\textbf{Output.} A single real number: the predicted $\log_{10}$ of the card's TCGplayer near-mint market price.
-
-\textbf{Scope.} I deliberately restrict the task to \emph{pricing a card from what is printed on it}, without using the card's own past prices. This keeps the problem a supervised regression on a fixed snapshot (not stock-style time-series forecasting) and matches the hardest real-world case: valuing cards from a brand-new set that has no trading history yet. Graded (PSA/BGS) prices, card condition, and non-English cards are out of scope.
+\textbf{Progress.} I built the full data pipeline (19{,}080 priced cards), both rule-based baselines, Ridge regression, and the planned midterm method, gradient-boosted trees. On the in-distribution test set, XGBoost reduces log-RMSE from 0.422 (best baseline) to 0.325, and 76\% of its predictions are within a factor of two of the true price. On the held-out split of newly released sets, however, the simple rarity$\times$era median still has the lowest error, and diagnosing why is a main finding of this report.
 
 \section{Related Work}
 
-Most prior card-price work targets \emph{Magic: The Gathering} and treats cards as financial assets. \citet{pawlicki2014mtg}, a Stanford CS229 project, frame price movement as binary classification of whether a card's price will rise in the next week, using logistic regression and SVMs over recent prices, sales volume, and tournament usage. \citet{perkhounkov2015financial} regress future MTG prices with support vector regression and find that past prices are far more predictive than card attributes or tournament results; they also report that the many near-constant ``bulk'' cards inflate $R^2$ and make results look better than they are, a pitfall I will guard against by reporting error per rarity tier. Both projects depend on price history, which is exactly what is missing for a newly released card.
+Most prior card-price work targets \emph{Magic: The Gathering} and treats cards as financial assets. \citet{pawlicki2014mtg}, a Stanford CS229 project, frame price movement as binary classification of whether a card's price will rise in the next week, using logistic regression and SVMs over recent prices, sales volume, and tournament usage. \citet{perkhounkov2015financial} regress future MTG prices with support vector regression and find that past prices are far more predictive than card attributes or tournament results; they also report that the many near-constant ``bulk'' cards inflate $R^2$ and make results look better than they are, a pitfall I guard against by reporting error per rarity. Both projects depend on price history, which is exactly what is missing for a newly released card.
 
 For Pok\'emon, several student and hobbyist projects exist but are mostly tabular. For example, one machine learning course project \citep{cse151a_pokemon} predicts card rarity from attributes and price features using random forests and a small neural network, removing the top 1\% of prices as outliers. None that I found use the card artwork, even though collectors clearly pay a large premium for full-art and alternate-art printings.
 
-Outside trading cards, multimodal models that combine images with tabular features have improved price prediction for products such as cellphones \citep{zehtab2020multimodal}. Most relevant, \citet{mei2025art} predict fine-art auction prices with tabular models (hedonic regression, XGBoost) and multimodal networks using ResNet-50 and Vision Transformer image features. They find that images add little when an artwork has prior sales, but help substantially for works with \emph{no} sales history. This directly motivates my design: the image should matter most on my out-of-distribution test set of the newest cards. My methods build on gradient-boosted trees \citep{chen2016xgboost} and pretrained CLIP image embeddings \citep{radford2021clip}.
+Outside trading cards, multimodal models that combine images with tabular features have improved price prediction for products such as cellphones \citep{zehtab2020multimodal}. Most relevant, \citet{mei2025art} predict fine-art auction prices with tabular models (hedonic regression, XGBoost) and multimodal networks using ResNet-50 and Vision Transformer image features. They find that images add little when an artwork has prior sales, but help substantially for works with \emph{no} sales history. This motivates my design: the image should matter most on the held-out split of the newest cards. My methods build on gradient-boosted trees \citep{chen2016xgboost} and, for the final report, pretrained CLIP image embeddings \citep{radford2021clip}.
 
 \section{Dataset and Evaluation}
 
-\textbf{Data sources.} Card metadata and image URLs come from the open-source Pok\'emon TCG API data dump \citep{pokemontcgdata}, which covers roughly 19,000 English cards from 1999 to the present. Prices come from the same API's live endpoint \citep{pokemontcgapi}, which returns TCGplayer market prices for each printing variant (normal, holofoil, reverse holofoil, 1st edition). TCGdex \citep{tcgdex} provides the same TCGplayer and Cardmarket prices without an API key and will serve as a backup source and cross-check. Since prices change daily, I will take a single price snapshot in October 2026 and save it, so all experiments use a fixed dataset.
+\textbf{Collection.} I wrote a script that downloads every English set and card from the TCGdex REST API \citep{tcgdex} and caches each JSON response to disk, so the snapshot is fixed and reproducible. Each card record contains its metadata and the TCGplayer prices of every printing variant, all stamped November 2, 2026. I excluded TCG Pocket sets, which belong to a separate digital game with no TCGplayer market. This left 21{,}256 cards released between January 1999 and July 2026.
 
-\textbf{Target construction.} For each card I use the TCGplayer \emph{market} price of its primary printing (holofoil if the card exists only as a holo, otherwise normal), and drop cards with no recorded price. Reverse-holo and 1st-edition variants become separate examples only if time allows. I will report the final number of examples, the price distribution, and the number of cards per rarity in the midterm report.
+\textbf{Target construction.} Following the proposal, the target is the TCGplayer \emph{market price} of a card's primary printing: the normal printing if one is priced, otherwise holofoil. Wizards-era sets are priced by edition instead, so for them the ``unlimited'' printing is used before 1st Edition, and reverse holofoil is used only when nothing else is priced. Dropping the 2{,}176 cards with no market price leaves \textbf{19{,}080 examples} from 176 sets (11{,}943 normal, 6{,}275 holofoil, 829 unlimited, 33 reverse holo). The distribution is heavy-tailed (Figure~\ref{fig:hist}): the median card is \$0.73 and 28.8\% sell for \$0.25 or less, but 791 cards are worth over \$100 and 35 over \$1{,}000. The data contains 15{,}998 Pok\'emon, 2{,}584 Trainer, and 498 Energy cards across 4{,}086 distinct names, 381 illustrators, and 26 rarity labels (Table~\ref{tab:rarity}); 356 cards, mostly from trainer kits and McDonald's sets, have no rarity label. The labels are not fully consistent: ``Holo Rare'' and ``Rare Holo'' both appear, and ``Ultra Rare'' covers ordinary V/GX cards as well as their much rarer full-art and alternate-art versions.
 
-\textbf{Splits.} I will build two test sets:
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/price_hist.pdf}
+\vspace{-0.25in}
+\caption{TCGplayer market price of the 19{,}080 priced cards (log scale).}
+\label{fig:hist}
+\end{figure}
+
+\begin{table}[t]
+\caption{Cards per rarity label, over all priced cards and in the new-sets (OOD) test split. ``Other'' groups the 15 rarest labels and the 356 unlabeled cards.}
+\label{tab:rarity}
+\vskip 0.05in
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+Rarity & All & OOD test \\
+\midrule
+Common & 5{,}467 & 246 \\
+Uncommon & 4{,}728 & 176 \\
+Rare & 3{,}545 & 69 \\
+Ultra Rare & 1{,}360 & 92 \\
+Holo Rare & 610 & 0 \\
+Promo & 577 & 0 \\
+Secret Rare & 571 & 0 \\
+Illustration rare & 493 & 79 \\
+Double rare & 317 & 78 \\
+Holo Rare V & 230 & 0 \\
+Special illustration rare & 222 & 45 \\
+Other & 960 & 6 \\
+\midrule
+Total & 19{,}080 & 791 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Splits.} As planned, I use two evaluation settings:
 \begin{itemize}
-    \item \textbf{In-distribution:} a random 80/10/10 train/dev/test split, \emph{grouped by card name} so that reprints of the same card (e.g., the many ``Charizard ex'' printings) never appear in both train and test.
-    \item \textbf{Out-of-distribution (new sets):} train on all sets released before a cutoff date and test on sets released in the final $\sim$12 months. This mimics pricing a new set before the market settles, and tests whether the model generalizes to new rarities and art styles.
+    \item \textbf{In-distribution (ID):} an 80/10/10 split \emph{grouped by card name}, so that reprints of the same card (e.g., the many ``Pikachu'' printings) never appear in both train and test. This yields 15{,}285 train, 1{,}788 dev, and 2{,}007 test cards (3{,}268 / 409 / 409 names). All hyperparameters are chosen on dev.
+    \item \textbf{Out-of-distribution (OOD):} every set released in the 12 months before the snapshot (after November 2, 2025) is held out as a test set: 791 cards from five sets, all in the new \emph{Mega Evolution} series. Models are retrained on the 18{,}289 older cards with the hyperparameters chosen on the ID dev set. Only one Mega Evolution set (188 cards) falls before the cutoff and is seen in training.
 \end{itemize}
 
-\textbf{Metrics.} The primary metric is RMSE on $\log_{10}$(price), which measures error in ``orders of magnitude'' so a \$1 vs.\ \$2 mistake counts the same as \$100 vs.\ \$200. I will also report MAE in dollars (what a seller cares about), Spearman rank correlation (does the model order cards correctly by value, e.g., to find a set's ``chase'' cards), and all metrics broken down by rarity so that the thousands of cheap commons do not hide poor performance on valuable cards.
+\textbf{Metrics.} The primary metric is RMSE on $\log_{10}$(price), which measures error in orders of magnitude, so a \$1 vs.\ \$2 mistake counts the same as \$100 vs.\ \$200. I also report MAE in dollars (what a seller loses), Spearman rank correlation (whether the model orders cards correctly, e.g., to find a set's chase cards), the fraction of predictions within a factor of two of the true price (``within $2\times$'', an interpretable accuracy), and log-RMSE per rarity so that cheap commons cannot hide poor performance on valuable cards.
 
 \section{Methods}
 
-\textbf{Baseline (non-ML).} Predict the median training-set log price of the card's rarity. A second rule-based baseline uses the median per (rarity, era) pair, since the same rarity name is worth very different amounts in 2000 and 2025.
+All methods map a card to a predicted $\log_{10}$ price $\hat{y}$; the reported dollar prediction is $10^{\hat{y}}$.
 
-\textbf{Method 1: Linear regression.} Ridge regression on one-hot rarity, supertype/subtype, and set era plus numeric features (card age, HP, card number divided by set size, reprint count). Regularization strength is tuned on the dev set.
+\textbf{Baseline 1: rarity median.} Group the training cards by rarity label and predict the median training log price of the card's rarity (the global median for unseen labels). There are no hyperparameters.
 
-\textbf{Method 2: Gradient-boosted trees.} XGBoost \citep{chen2016xgboost} on the same features plus richer ones: a Pok\'emon popularity score (e.g., from a public fan popularity poll or search interest), whether the Pok\'emon is a known ``chase'' species (Charizard, Pikachu, Eeveelutions), and target-encoded illustrator and set. Trees can capture interactions that a linear model cannot, such as ``Special Illustration Rare \emph{and} a popular Pok\'emon.'' Depth, learning rate, and number of trees are tuned on the dev set. This is the planned midterm method.
+\textbf{Baseline 2: rarity$\times$era median.} The same lookup keyed on the pair (rarity, series), where the series (e.g., Base, EX, Sun \& Moon, Scarlet \& Violet; 19 in total) serves as the era. It backs off to the rarity median when a pair is unseen. This captures that the same rarity label is worth very different amounts in 2000 and 2025.
 
-\textbf{Method 3 (final): Multimodal model.} Add the card image. First, extract frozen CLIP ViT-B/32 embeddings \citep{radford2021clip} for each card and feed them (optionally reduced with PCA) alongside the tabular features to XGBoost or a small MLP. If time allows, fine-tune a pretrained CNN (e.g., ResNet-50) end to end on Google Colab with the tabular features concatenated before the regression head. The hypothesis, following \citet{mei2025art}, is that the artwork captures visual appeal and art style that the metadata misses, and helps most on the new-set test split.
+\textbf{Features.} For the learned models, each card becomes a feature vector built from its metadata.
+\emph{(i) Categorical,} one-hot encoded with levels from the training set: rarity, category (Pok\'emon/Trainer/Energy), suffix (ex, V, VMAX, GX, TAG TEAM-GX, \ldots), evolution stage, series, trainer type, and energy type.
+\emph{(ii) Numeric:} card age in years at the snapshot; HP (0 for non-Pok\'emon) with a has-HP indicator; card number divided by the printed set size; a secret-rare indicator (number above the printed set size); and $\log(1+\text{reprint count})$, where the reprint count is the number of cards sharing the name.
+This gives 86 features for Ridge.
 
-\textbf{Key challenges.}
-\begin{itemize}
-    \item \emph{Heavy-tailed prices and a bulk floor:} handled by regressing log price and reporting metrics per rarity.
-    \item \emph{Popularity is not in the data:} a Charizard and a Bidoof with identical rarity can differ 100$\times$ in price. I will add an external popularity feature and use error analysis to measure how much remains unexplained.
-    \item \emph{Leakage through reprints:} grouped splitting by card name.
-    \item \emph{Distribution shift:} new sets introduce new rarity names and art styles; the temporal split measures this directly, and image features are meant to help here.
-    \item \emph{Noisy labels:} old or rarely traded cards have unreliable market prices. I will inspect such cases during error analysis and, if needed, filter cards with very low sales volume.
-\end{itemize}
+\textbf{Method 1: Ridge regression.} Least squares with an $L_2$ penalty, $\min_w \|Xw - y\|^2 + \alpha\|w\|^2$, on standardized features (means and variances from the training set). The only hyperparameter, $\alpha$, was swept over $\{10^{-2}, 10^{-1}, \ldots, 10^{4}\}$ on dev.
+
+\textbf{Method 2: gradient-boosted trees.} XGBoost \citep{chen2016xgboost} with squared-error loss on the Ridge features plus 16 more: the Pok\'emon's primary energy type (one-hot), its National Pok\'edex number, a \emph{chase species} indicator (Charizard, Pikachu, Eevee and its eight evolutions, Mew, Mewtwo, Lugia, Rayquaza, Gengar), and target-encoded illustrator and set. The target encoding replaces a category with its smoothed mean training log price, $(\sum_i y_i + m\bar{y})/(n + m)$ with $m=10$. To avoid leakage, training rows receive out-of-fold encodings from 5-fold cross-fitting, so a card's own price never enters its own feature. Trees can represent interactions such as ``Special Illustration Rare \emph{and} a chase species'' that the additive Ridge model cannot. I grid-searched tree depth $\in\{3,4,6,8\}$, learning rate $\in\{0.03, 0.1\}$, and number of trees $\in\{200, 500, 1000\}$ on dev, with row and column subsampling fixed at 0.8. To separate the effect of the model class from the effect of the extra features, I also trained XGBoost on only the 86 Ridge features.
+
+\section{Experiments}
+
+\textbf{Hyperparameter selection.} For Ridge, dev RMSE is flat at 0.453 for every $\alpha \le 10$ and rises to 0.461 at $\alpha=10^3$ and 0.531 at $\alpha=10^4$. With 15{,}285 examples and 86 features the model is not overfitting (train RMSE 0.444), so I use $\alpha=0.01$. Table~\ref{tab:xgbgrid} shows the XGBoost grid. Shallow trees with a small learning rate are still improving at 1{,}000 trees, while depth-8 trees at learning rate 0.1 get worse on dev after 200 trees. I selected depth 4, learning rate 0.1, and 1{,}000 trees (dev RMSE 0.304, train 0.202). The four best configurations are within 0.003 of each other, so the result is not sensitive to this choice.
+
+\begin{table}[t]
+\caption{XGBoost dev log-RMSE over the hyperparameter grid. Bold marks the selected configuration.}
+\label{tab:xgbgrid}
+\vskip 0.05in
+\centering
+\small
+\begin{tabular}{ccccc}
+\toprule
+& & \multicolumn{3}{c}{Number of trees} \\
+Depth & LR & 200 & 500 & 1000 \\
+\midrule
+3 & 0.03 & 0.398 & 0.369 & 0.343 \\
+3 & 0.10 & 0.359 & 0.328 & 0.313 \\
+4 & 0.03 & 0.375 & 0.347 & 0.323 \\
+4 & 0.10 & 0.335 & 0.312 & \textbf{0.304} \\
+6 & 0.03 & 0.337 & 0.317 & 0.307 \\
+6 & 0.10 & 0.316 & 0.306 & 0.309 \\
+8 & 0.03 & 0.321 & 0.310 & 0.307 \\
+8 & 0.10 & 0.310 & 0.311 & 0.314 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table*}[t]
+\caption{Test results. RMSE is on $\log_{10}$(price), so 0.30 corresponds to a typical error of about $2\times$; MAE is in dollars; $\rho$ is Spearman rank correlation; ``$<2\times$'' is the fraction of predictions within a factor of two. In-distribution test: 2{,}007 cards; new-sets (OOD) test: 791 cards from sets released in the last 12 months. Bold marks the best value in each column.}
+\label{tab:results}
+\vskip 0.05in
+\centering
+\small
+\begin{tabular}{lcccccccc}
+\toprule
+& \multicolumn{4}{c}{In-distribution test} & \multicolumn{4}{c}{New sets (OOD) test} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+Method & RMSE $\downarrow$ & MAE $\downarrow$ & $\rho$ $\uparrow$ & $<2\times$ $\uparrow$ & RMSE $\downarrow$ & MAE $\downarrow$ & $\rho$ $\uparrow$ & $<2\times$ $\uparrow$ \\
+\midrule
+Rarity median & 0.732 & 15.86 & 0.601 & 42.4\% & 0.509 & 6.32 & 0.798 & 42.0\% \\
+Rarity$\times$era median & 0.422 & 13.44 & 0.911 & 67.5\% & \textbf{0.239} & \textbf{5.24} & 0.821 & \textbf{84.7\%} \\
+Ridge & 0.438 & 13.72 & 0.904 & 55.9\% & 0.352 & 5.60 & 0.797 & 66.9\% \\
+XGBoost (Ridge features only) & 0.343 & 10.60 & 0.929 & 71.4\% & -- & -- & -- & -- \\
+XGBoost & \textbf{0.325} & \textbf{10.11} & \textbf{0.943} & \textbf{76.2\%} & 0.312 & 6.45 & \textbf{0.877} & 71.9\% \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/rarity_rmse.pdf}
+\vspace{-0.25in}
+\caption{In-distribution test log-RMSE for the ten most common rarity labels (``none'' = no rarity label).}
+\label{fig:rarity}
+\end{figure}
+
+\textbf{In-distribution results.} Table~\ref{tab:results} shows the test results. XGBoost is best on every in-distribution metric: log-RMSE 0.325 against 0.422 for the best baseline, dollar MAE \$10.11 against \$13.44, and 76\% of predictions within $2\times$. Ridge is surprisingly no better than the rarity$\times$era lookup (0.438 vs.\ 0.422). The lookup table directly encodes the rarity--era \emph{interaction}, while Ridge can only add a rarity effect to an era effect. The gap is largest for Holo Rare (0.458 for Ridge vs.\ 0.270 for the lookup; Figure~\ref{fig:rarity}), a label used across many eras whose price level differs greatly between them. The ablation shows that most of XGBoost's gain comes from the model class: on the same 86 features, trees reach 0.343, and the extra features (target-encoded set and illustrator, chase flag, Pok\'edex number) bring it to 0.325. XGBoost improves on the lookup for every common rarity, most for Ultra Rare (0.526 $\to$ 0.336) and Secret Rare (0.550 $\to$ 0.318). These are high-value groups where interactions with the depicted Pok\'emon matter. Promos remain the hardest group for every method (0.503 for XGBoost).
+
+\textbf{Out-of-distribution results.} On the new sets the ranking flips: the rarity$\times$era median has the lowest log-RMSE (0.239) and dollar MAE, while XGBoost (0.312) is still best at \emph{ranking} cards (Spearman 0.877 vs.\ 0.821). XGBoost systematically \emph{overpredicts} the new sets, with a mean signed error of $+0.19$ (about $1.5\times$), against $+0.01$ for the baseline. Two causes are visible in the data. First, every OOD card is 0.3 to 1.0 years old, younger than any training card (minimum 1.1 years). Trees cannot extrapolate, so these cards receive the predictions learned for the youngest training cards, whose prices already carry a premium that very new cards have not yet built up (the OOD median price is \$0.20, against \$0.77 in training). Second, the baseline keys directly on the one Mega Evolution set seen in training, while XGBoost has only a single one-hot feature for a series that covers 1\% of its training data. Per rarity, XGBoost is much better on the most valuable new cards (Special Illustration Rare: 0.278 vs.\ 0.455) but much worse on plain Rares (0.438 vs.\ 0.115) and Illustration Rares (0.549 vs.\ 0.298). In other words, it orders the chase cards correctly but misplaces the overall price level of a new era.
+
+\section{Discussion}
+
+\textbf{Error analysis.} On the dev set, 454 of 1{,}788 XGBoost predictions (25\%) are off by more than $2\times$. I drew a random sample of 50 of these cards and inspected each one's metadata and, for the largest misses, its card image. Three patterns account for 35 of the 50, and a fourth shows up across the whole dev set.
+
+\emph{1. Full and alternate art behind a generic rarity (6/50, the largest errors).} All six are ``Ultra Rare'' cards underpredicted by $4\times$ to $14\times$, for example Latias \& Latios GX from Team Up (\$4{,}620, predicted \$445), Zeraora V from Chilling Reign (\$93.91, predicted \$6.88), and Unown V from Silver Tempest (\$29.07, predicted \$3.45). Looking at the images, Zeraora and Unown are \emph{alternate-art} printings with full-scene illustrations, and the others are full-art printings. What separates them from ordinary Ultra Rares is mainly visible in the artwork, which is the gap the image model is meant to close.
+
+\emph{2. Cheap cards near the bulk floor (21/50).} The most common error is overpredicting a card worth under \$5 by $2\times$ to $5\times$. Sixteen of these come from sets released before 2016, for example Base Set 2 Beedrill (\$3.09, predicted \$13.31), FireRed \& LeafGreen Arcanine (\$2.10, predicted \$10.03), and many 2003--2013 commons predicted near \$1 that sell for \$0.30. The model learned ``old means valuable'' from vintage chase cards and applies it to species no one is chasing. The dollar errors are small, but they suggest that popularity, not age alone, drives the vintage premium.
+
+\emph{3. Promos and special products (8/50).} Six Sun \& Moon Black Star Promos, a McDonald's card, and a trainer-kit card. Promo prices depend on how a card was distributed (a mass-market box vs.\ a limited event), which nothing on the card records.
+
+\emph{4. Shrinkage toward the middle.} Across all of dev, XGBoost overpredicts cards worth \$0.32--\$1 by $+0.12$ on average and underpredicts cards worth more than \$100 by $-0.31$ (about $2\times$). Chase-species cards are underpredicted on average ($-0.08$) and have higher error (RMSE 0.387 vs.\ 0.300), so a single binary flag is too coarse a measure of popularity.
+
+\textbf{Planned improvements.} Based on these patterns, I plan four changes for the final report:
+\begin{enumerate}
+    \item \textbf{Image features} (patterns 1 and 4). Add frozen CLIP ViT-B/32 embeddings of each card image, reduced with PCA, to the XGBoost features, and compare against a small MLP over the same inputs. Full art, alternate art, and special illustration styles are visually distinctive, and \citet{mei2025art} found that images help most where price history is absent.
+    \item \textbf{A continuous popularity score} (patterns 2 and 4). Replace the hand-picked chase list with a per-species score from a public fan popularity poll or search-interest data, so the model can tell a Beedrill from an Umbreon at the same rarity and age.
+    \item \textbf{A target that transfers to new eras} (OOD results). Use the rarity$\times$era median as a base margin and have XGBoost learn only the residual: the baseline already places a new era's price level correctly, and the trees already rank cards well. I will also clip card age to the training range so that new sets are not treated as one-year-old cards.
+    \item \textbf{Cleaner labels and product features} (pattern 3). Merge equivalent rarity labels (``Holo Rare''/``Rare Holo'') and add an indicator for promo and special-product sets.
+\end{enumerate}
+
+\section{Conclusion}
+
+I built a reproducible pipeline that snapshots 19{,}080 priced English Pok\'emon cards from TCGdex, and I evaluated four methods (plus an ablation) on a name-grouped in-distribution split and on a held-out split of new sets. Gradient-boosted trees over card metadata are the best in-distribution model (log-RMSE 0.325, 76\% within $2\times$), mainly because they capture rarity--era and rarity--species interactions that Ridge cannot. On newly released sets, however, a rarity$\times$era lookup still sets the price level better: XGBoost overpredicts new cards by about $1.5\times$ even though it ranks them better. Error analysis points to full and alternate art, Pok\'emon popularity, and promo distribution as the main missing signals. For the final report, I will add CLIP image embeddings and a popularity score, train XGBoost on the residual from the era baseline to fix the new-set price level, and repeat the per-rarity and new-set evaluation to test whether the artwork helps most where price history is missing.
 
 \bibliography{main}
 \bibliographystyle{icml2021}
