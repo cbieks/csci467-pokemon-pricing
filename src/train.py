@@ -259,7 +259,7 @@ def main():
 def make_figures(df, rarity_rmse):
     plt.rcParams.update({"font.size": 8, "figure.dpi": 200})
 
-    fig, ax = plt.subplots(figsize=(3.3, 1.9))
+    fig, ax = plt.subplots(figsize=(3.3, 1.5))
     ax.hist(df.log_price, bins=60, color="#4C72B0")
     ax.set_xlabel(r"$\log_{10}$(TCGplayer market price, USD)")
     ax.set_ylabel("cards")
@@ -273,7 +273,7 @@ def make_figures(df, rarity_rmse):
     rar = sorted(test["XGBoost"], key=lambda r: -df[df.rarity == r].shape[0])[:10]
     methods = ["Rarity $\\times$ era median", "Ridge", "XGBoost"]
     labels = ["Rarity×era median", "Ridge", "XGBoost"]
-    fig, ax = plt.subplots(figsize=(3.3, 2.3))
+    fig, ax = plt.subplots(figsize=(3.3, 2.0))
     w = 0.27
     for i, (m, lab) in enumerate(zip(methods, labels)):
         ax.barh(np.arange(len(rar)) + (i - 1) * w, [test[m].get(r, np.nan) for r in rar], w, label=lab)
