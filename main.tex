@@ -118,7 +118,7 @@ All methods map a card to a predicted $\log_{10}$ price $\hat{y}$; the reported 
 
 \textbf{Features.} For the learned models, each card becomes a feature vector built from its metadata.
 \emph{(i) Categorical,} one-hot encoded with levels from the training set: rarity, category (Pok\'emon/Trainer/Energy), suffix (ex, V, VMAX, GX, TAG TEAM-GX, \ldots), evolution stage, series, trainer type, and energy type.
-\emph{(ii) Numeric:} card age in years at the snapshot; HP (0 for non-Pok\'emon) with a has-HP indicator; card number divided by the printed set size; a secret-rare indicator (number above the printed set size); and $\log(1+\text{reprint count})$, where the reprint count is the number of cards sharing the name.
+\emph{(ii) Numeric:} card age in years at the snapshot; HP (0 for non-Pok\'emon) with a has-HP indicator; card number divided by the printed set size; a secret-rare indicator (number above the printed set size); and $\log(1+r)$, where the reprint count $r$ is the number of cards sharing the name.
 This gives 86 features for Ridge.
 
 \textbf{Method 1: Ridge regression.} Least squares with an $L_2$ penalty, $\min_w \|Xw - y\|^2 + \alpha\|w\|^2$, on standardized features (means and variances from the training set). The only hyperparameter, $\alpha$, was swept over $\{10^{-2}, 10^{-1}, \ldots, 10^{4}\}$ on dev.
