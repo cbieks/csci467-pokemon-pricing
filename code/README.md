@@ -10,6 +10,8 @@ CSCI 467 (USC, Fall 2026) course project by Cameron Bieker. Predicts the TCGplay
 
 ## Reproduce
 
+Run from this `code/` folder.
+
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt   # Windows; use .venv/bin/python elsewhere
