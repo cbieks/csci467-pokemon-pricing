@@ -281,9 +281,11 @@ def make_figures(df, rarity_rmse):
     ax.set_yticklabels(rar)
     ax.invert_yaxis()
     ax.set_xlabel(r"test RMSE ($\log_{10}$ price)")
-    ax.legend(fontsize=6, loc="lower right")
+    # Above the axes: inside, it covers the bars of the lower rarities.
+    ax.legend(fontsize=6, loc="lower center", bbox_to_anchor=(0.4, 1.0), ncol=3, frameon=False,
+              columnspacing=1.0, handlelength=1.5)
     fig.tight_layout()
-    fig.savefig(OUT / "figures" / "rarity_rmse.pdf")
+    fig.savefig(OUT / "figures" / "rarity_rmse.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
